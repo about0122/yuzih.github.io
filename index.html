@@ -1,196 +1,615 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>林昱孜 (荔枝) | 個人微型網站</title>
-    <!-- 引入 Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 引入 Font Awesome 用於圖標 -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <!-- Google Fonts: Noto Sans TC -->
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
-    
-    <style>
-        body {
-            font-family: 'Noto Sans TC', sans-serif;
-            /* 背景改為暖橘色系漸層，呼應「荔枝」與圖片主色 */
-            background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
-            min-height: 100vh;
-        }
-        
-        .profile-image-container {
-            border: 4px solid white;
-            box-shadow: 0 10px 15px -3px rgba(234, 88, 12, 0.2); /* 橘色陰影 */
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>嘉義捷運藍線 B01 站｜北興陸橋空間鎖定 WebAR</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Microsoft JhengHei", sans-serif; user-select: none; -webkit-user-select: none; }
+    body { background: #000; color: #fff; overflow: hidden; height: 100vh; width: 100vw; position: relative; touch-action: none; }
 
-        .animate-fade-in {
-            animation: fadeIn 0.8s ease-out forwards;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(15px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+    #camera-video {
+      position: fixed; inset: 0; width: 100vw; height: 100vh;
+      object-fit: cover; z-index: 1;
+    }
+    #canvas-container {
+      position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 2;
+    }
 
-        /* 按鈕懸浮效果 */
-        .link-card {
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .link-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.15);
-        }
-        
-        /* 自定義強調色文字 */
-        .highlight-text {
-            color: #e98432;
-        }
-    </style>
+    /* 頂部極簡單行狀態與一鍵釘死控制列 */
+    #top-hud {
+      position: fixed; top: 12px; left: 10px; right: 10px; z-index: 20;
+      background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 999px;
+      padding: 7px 12px; display: none; justify-content: space-between; align-items: center; gap: 6px;
+      font-size: 0.74rem; font-weight: 700; box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+    }
+    #gps-status { color: #38bdf8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hud-btns { display: flex; gap: 5px; flex-shrink: 0; }
+    .mini-btn {
+      background: linear-gradient(135deg, #0d9488, #0284c7); border: 1px solid #5eead4; color: #fff;
+      padding: 5px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 800; cursor: pointer;
+    }
+    .mini-btn:active { transform: scale(0.95); }
+
+    /* 底部微調提示（3秒後自動淡出為半透明，不擋畫面） */
+    #align-tip {
+      position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 20;
+      background: rgba(15, 23, 42, 0.72); backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.18); border-radius: 999px;
+      padding: 6px 14px; font-size: 0.7rem; color: #e2e8f0; white-space: nowrap;
+      display: none; pointer-events: none;
+    }
+
+    /* 遠距離遮擋提示（超過 230m 如在新榮路 35 巷家中 9 樓時顯示） */
+    #far-notice {
+      position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 20;
+      width: calc(100% - 28px); max-width: 420px;
+      background: rgba(15, 23, 42, 0.86); backdrop-filter: blur(10px);
+      border: 1px solid rgba(250, 204, 21, 0.5); border-radius: 14px;
+      padding: 12px 16px; text-align: center; font-size: 0.76rem; color: #fef08a;
+      line-height: 1.5; display: none; pointer-events: none;
+    }
+
+    /* 啟動畫面 */
+    #start-overlay {
+      position: fixed; inset: 0; z-index: 50;
+      background: radial-gradient(circle at center, #1e293b 0%, #090d16 100%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 24px; text-align: center;
+    }
+    .card {
+      background: rgba(15, 23, 42, 0.94); border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 20px; padding: 24px 20px; max-width: 380px; width: 100%;
+      box-shadow: 0 12px 35px rgba(0,0,0,0.65);
+    }
+    .card h1 { font-size: 1.12rem; color: #2dd4bf; margin-bottom: 8px; font-weight: 800; }
+    .card p { font-size: 0.8rem; color: #cbd5e1; line-height: 1.55; margin-bottom: 18px; }
+    #start-btn {
+      width: 100%; background: linear-gradient(135deg, #0d9488, #0284c7);
+      border: 1px solid #5eead4; color: #fff; padding: 13px; border-radius: 12px;
+      font-size: 0.92rem; font-weight: 800; cursor: pointer;
+      box-shadow: 0 4px 20px rgba(13, 148, 136, 0.5); margin-bottom: 10px;
+    }
+    .self-dl-btn {
+      width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.25);
+      color: #bae6fd; padding: 10px; border-radius: 10px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+    }
+  </style>
 </head>
-<body class="text-slate-800 flex justify-center items-center py-10 px-4 min-h-screen">
+<body>
 
-    <!-- 主要容器 -->
-    <main class="w-full max-w-[420px]">
-        
-        <!-- 白色卡片容器 -->
-        <div class="bg-white rounded-[3rem] p-10 shadow-2xl shadow-orange-100 w-full mx-auto relative flex flex-col items-center animate-fade-in border-t-4 border-orange-400">
+  <video id="camera-video" autoplay playsinline muted></video>
+  <div id="canvas-container"></div>
 
-            <!-- 個人檔案區塊 -->
-            <section class="flex flex-col items-center text-center w-full">
-                
-                <!-- 頭像區域與 QR Code 按鈕 -->
-                <div class="relative flex items-center justify-center w-full mb-6">
-                    
-                    <!-- 左側 QR Code 按鈕 -->
-                    <button onclick="openModal()" class="absolute left-0 p-3 bg-orange-50 rounded-2xl text-orange-400 hover:bg-orange-100 hover:text-orange-600 transition-all duration-300 border border-orange-100 group" title="顯示 QR Code">
-                        <i class="fa-solid fa-qrcode text-xl group-hover:scale-110 transition-transform"></i>
-                    </button>
-
-                    <!-- 頭像 -->
-                    <div class="w-32 h-32 rounded-full overflow-hidden profile-image-container ring-8 ring-orange-50">
-                        <img src="001.jpg" 
-                             onerror="this.onerror=null; this.src='https://api.dicebear.com/9.x/avataaars/svg?seed=Litchi';" 
-                             alt="林昱孜" 
-                             class="w-full h-full object-cover"
-                             style="object-position: center top;">
-                    </div>
-                </div>
-                
-                <!-- 姓名 -->
-                <h1 class="text-3xl font-extrabold text-slate-900 mb-6 tracking-tight">林昱孜 <span class="text-xl font-bold text-orange-500">(荔枝)</span></h1>
-                
-                <!-- 職稱內容 -->
-                <div class="text-slate-600 text-[15px] mb-8 w-full space-y-2 font-medium">
-                    <p class="font-bold text-slate-800 text-lg">嘉義市東區市議員擬參選人</p>
-                    <p>立法委員王安祥團隊副主任</p>
-                    <p>嘉義市長參選人張啓楷副主任</p>
-                    <p>急重症護理臨床經驗10年</p>
-                    
-                    <!-- 裝飾線 -->
-                    <div class="py-4">
-                        <div class="w-12 h-1 bg-orange-100 rounded-full mx-auto"></div>
-                    </div>
-
-                    <!-- 移動到此處，與上方經歷分開，並置於服務標語上方 -->
-                    <p class="font-bold text-orange-600 text-lg mb-1">骨力女將 · 抵嘉顧荔</p>
-
-                    <!-- 重點強調標語 (依據要求加大字體與改色) -->
-                    <p class="font-bold text-xl highlight-text" style="color: #e98432;">
-                        提供免費法律及陳情服務
-                    </p>
-                </div>
-
-                <!-- 社交媒體連結 -->
-                <div class="grid grid-cols-6 gap-2 w-full max-w-[340px]">
-                    <!-- 第一個連結 (您提供的是 Threads，暫放於此位置，若有 IG 可替換) -->
-                    <a href="https://www.threads.com/@to7912102003" target="_blank" class="aspect-square bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-black link-card">
-                         <i class="fa-solid fa-at text-lg"></i>
-                    </a>
-                    
-                    <!-- Facebook -->
-                    <a href="https://www.facebook.com/linyuzih79" target="_blank" class="aspect-square bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-[#1877F2] link-card">
-                        <i class="fab fa-facebook-f text-base"></i>
-                    </a>
-
-                    <!-- YouTube -->
-                    <a href="https://www.youtube.com/@yuzih1210" target="_blank" class="aspect-square bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-[#FF0000] link-card">
-                        <i class="fab fa-youtube text-lg"></i>
-                    </a>
-
-                    <!-- TikTok -->
-                    <a href="https://www.tiktok.com/@yuzih791210" target="_blank" class="aspect-square bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-black link-card">
-                        <i class="fab fa-tiktok text-base"></i>
-                    </a>
-
-                    <!-- Threads (重複連結，放置於此) -->
-                    <a href="https://www.threads.com/@to7912102003" target="_blank" class="aspect-square bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-black link-card">
-                        <i class="fa-brands fa-threads text-base"></i>
-                    </a>
-
-                    <!-- LINE -->
-                    <a href="https://lin.ee/9n4iQRK" target="_blank" class="aspect-square bg-slate-50 rounded-2xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-[#06C755] link-card">
-                        <i class="fab fa-line text-lg"></i>
-                    </a>
-                </div>
-            </section>
-
-            <!-- 頁尾 -->
-            <footer class="mt-12 text-center">
-                <p class="text-[10px] text-slate-300 font-bold tracking-[0.2em] uppercase">
-                    © 2026 LIN YU-ZIH
-                </p>
-            </footer>
-
-        </div>
-    </main>
-
-    <!-- QR Code 彈出視窗 -->
-    <div id="qrModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md hidden opacity-0 transition-opacity duration-300" onclick="closeModal()">
-        <div class="bg-white p-8 rounded-[2.5rem] shadow-2xl max-w-[90%] w-[340px] relative transform scale-95 transition-transform duration-300" onclick="event.stopPropagation()">
-            <!-- 關閉按鈕 -->
-            <button onclick="closeModal()" class="absolute -top-14 right-0 text-white text-4xl hover:text-slate-300 transition-colors">
-                <i class="fa-solid fa-xmark"></i>
-            </button>
-            
-            <div class="text-center">
-                <div class="mb-6">
-                    <h3 class="text-slate-900 font-bold text-xl mb-1">林昱孜 (荔枝)</h3>
-                    <p class="text-slate-400 text-sm font-medium highlight-text">數位名片 QR Code</p>
-                </div>
-                
-                <div class="bg-orange-50 p-4 rounded-3xl shadow-inner mb-6">
-                    <!-- 使用 Google Chart API 生成當前網址的 QR Code 作為範例 -->
-                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=https://www.facebook.com/linyuzih79" alt="QR Code" class="w-full h-full rounded-xl mix-blend-multiply opacity-90">
-                </div>
-                
-                <p class="text-slate-400 text-xs">掃描上方 QR Code 即可分享此頁面</p>
-            </div>
-        </div>
+  <div id="top-hud">
+    <span id="gps-status">🛰️ 正在鎖定 GPS...</span>
+    <div class="hud-btns">
+      <button class="mini-btn" onclick="lockToCurrentView()">🎯 釘死於眼前陸橋</button>
     </div>
+  </div>
 
-    <script>
-        const modal = document.getElementById('qrModal');
-        const modalContent = modal.querySelector('div');
+  <div id="align-tip">💡 可用單指左右滑動畫面，將 B01 站精準推至北興陸橋正上方鎖死</div>
+  <div id="far-notice"></div>
 
-        function openModal() {
-            modal.classList.remove('hidden');
-            void modal.offsetWidth;
-            modal.classList.add('opacity-100');
-            modalContent.classList.remove('scale-95');
-            modalContent.classList.add('scale-100');
-            document.body.style.overflow = 'hidden';
+  <div id="start-overlay">
+    <div class="card">
+      <h1>嘉義捷運藍線 B01 站 WebAR</h1>
+      <p>
+        1. <strong>零晃動純陀螺儀鎖定</strong>：消除羅盤磁力計抖動，站體紋絲不動。<br>
+        2. <strong>北興陸橋精準經緯度</strong>：走到現場（230m 內）自動顯現；若現場磁偏角偏移，對準北興陸橋點擊<strong>「🎯 釘死於眼前陸橋」</strong>或單指左右微調即可完美鎖定！
+      </p>
+      <button id="start-btn" onclick="startRealWorldAR()">📷 啟動實景相機與空間鎖定</button>
+      <button class="self-dl-btn" onclick="downloadSelfHTML()">⬇️ 下載此 index.html 檔案</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    // =========================================================================
+    // 1. 嘉義市自由路 × 博愛路一段 ＆ 北興陸橋 真實三角測量 WGS84 經緯度
+    // -------------------------------------------------------------------------
+    // 世界原點 (X = 0, Z = 0)：自由路 × 博愛路一段 類圓環路口正中心
+    //   Lat: 23.484804° N, Lon: 120.441949° E
+    // 張啓楷競選總部（博愛路一段 510 號）：
+    //   Lat: 23.485040° N, Lon: 120.442076° E (位於路口中心東北側約 29m)
+    // 北興陸橋起點（自由路 × 北興街口，黃彬診所與 YAMAHA 間）：
+    //   Lat: 23.484515° N, Lon: 120.442253° E (位於路口中心往東南約 +45m)
+    // 輕軌 B01 站體中心（位於北興陸橋上，自由路/北興街口東南側）：
+    //   Lat: 23.483771° N, Lon: 120.443138° E (位於路口中心往東南約 +118m，站體範圍 X=+65m ~ +145m)
+    // 自由路往北興陸橋之真北方位角：133.4° (東南向)
+    // =========================================================================
+    const ORIGIN_LAT = 23.484804;
+    const ORIGIN_LON = 120.441949;
+    const ROAD_AZIMUTH_DEG = 133.4;
+    const MAX_VISIBLE_DISTANCE = 230.0; // 超過 230m (如新榮路 35 巷約 600m 外) 隱藏站體
+
+    // 採用標準「局部自由路座標系」：
+    // +X 軸 = 沿自由路往東南（正對北興陸橋 B01 站方向，方位角 133.4°）
+    // +Z 軸 = 自由路西南側（阿生雞肉飯、內衣特賣會、黃彬診所側，方位角 223.4°）
+    // -Z 軸 = 自由路東北側（張啓楷競選總部、法輪大法好、YAMAHA 側，方位角 43.4°）
+    // +Y 軸 = 垂直向上（地面 Y=0，人眼 Y=1.7m，B01穿堂層天花板 Y=5.80m，軌道梁底天花板 Y=9.05m，軌面 Y=10.21m）
+
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.2, 260);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x94a3b8, 1.25);
+    scene.add(hemiLight);
+    const dirLight = new THREE.DirectionalLight(0xfffbeb, 1.35);
+    dirLight.position.set(-40, 100, 50);
+    scene.add(dirLight);
+
+    const lrtWorldGroup = new THREE.Group();
+    lrtWorldGroup.visible = false; // 預設隱藏，進入現場 230m 內才顯示
+    scene.add(lrtWorldGroup);
+
+    // =========================================================================
+    // 2. 建構 B01 站體（位於北興陸橋 X=+65m ~ +145m）與高架軌道天花板
+    // =========================================================================
+    const railY = 10.21;
+    const girderBottomY = 9.05;
+    const concourseBottomY = 5.80;
+    const stationCenterX = 105; // 北興陸橋 B01 站中心 (X = +65m 北興街口東南側 ~ +145m)
+    const stationLen = 80;
+
+    function makeCeilingTexture(title, sub, bgHex, ribHex) {
+      const cvs = document.createElement('canvas');
+      cvs.width = 1024; cvs.height = 512;
+      const ctx = cvs.getContext('2d');
+      ctx.fillStyle = bgHex; ctx.fillRect(0, 0, 1024, 512);
+      ctx.strokeStyle = ribHex; ctx.lineWidth = 12;
+      for (let x = 0; x <= 1024; x += 128) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 512); ctx.stroke(); }
+      for (let y = 0; y <= 512; y += 128) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1024, y); ctx.stroke(); }
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+      ctx.fillRect(140, 160, 744, 190);
+      ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 5;
+      ctx.strokeRect(140, 160, 744, 190);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#38bdf8'; ctx.font = 'bold 42px "Microsoft JhengHei"';
+      ctx.fillText(title, 512, 220);
+      ctx.fillStyle = '#fde047'; ctx.font = 'bold 30px "Microsoft JhengHei"';
+      ctx.fillText(sub, 512, 295);
+      const tex = new THREE.CanvasTexture(cvs);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    function makeBannerTexture(text) {
+      const cvs = document.createElement('canvas');
+      cvs.width = 1024; cvs.height = 160;
+      const ctx = cvs.getContext('2d');
+      ctx.fillStyle = '#0284c7'; ctx.fillRect(0, 0, 1024, 160);
+      ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 8; ctx.strokeRect(4, 4, 1016, 152);
+      ctx.fillStyle = '#ffffff'; ctx.font = 'bold 44px "Microsoft JhengHei"';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(text, 512, 80);
+      const tex = new THREE.CanvasTexture(cvs);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    function buildB01StationAndViaduct() {
+      const matConcrete = new THREE.MeshStandardMaterial({ color: 0xd1d5db, roughness: 0.65 });
+      const matDarkConcrete = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.75 });
+      const matDanhaiTeal = new THREE.MeshStandardMaterial({ color: 0x0d9488, roughness: 0.35 });
+      const matWhiteSteel = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.25, metalness: 0.25 });
+      const matPipeSteel = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.4, metalness: 0.6 });
+      const matLED = new THREE.MeshBasicMaterial({ color: 0xe0f2fe });
+      const matGlass = new THREE.MeshStandardMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.4, roughness: 0.1, metalness: 0.4 });
+      const matSkybridge = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.35 });
+
+      // 1. 高架單柱橋墩與 T 型懸臂帽梁
+      [-75, -50, -24, 24, 52, 78, 105, 132, 156].forEach(px => {
+        const isStation = (px >= 72 && px <= 136);
+        const topY = isStation ? concourseBottomY : girderBottomY;
+
+        const pier = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.35, topY - 0.8, 20), matConcrete);
+        pier.position.set(px, (topY - 0.8) / 2, 0);
+        lrtWorldGroup.add(pier);
+
+        const collar = new THREE.Mesh(new THREE.BoxGeometry(2.7, 1.0, 3.0), matDanhaiTeal);
+        collar.position.set(px, topY - 1.2, 0);
+        lrtWorldGroup.add(collar);
+
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.15, isStation ? 13.4 : 11.4), matDarkConcrete);
+        cap.position.set(px, girderBottomY - 0.58, 0);
+        lrtWorldGroup.add(cap);
+
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, topY, 10), matPipeSteel);
+        pipe.position.set(px + 0.9, topY / 2, 1.25);
+        lrtWorldGroup.add(pipe);
+      });
+
+      // 2. 高架軌道雙箱型梁與底部天花板（走到自由路×博愛路一段路口中間抬頭往上看可見）
+      const texGirderCeiling = makeCeilingTexture(
+        '嘉義藍線高架輕軌｜高架軌道箱型梁底部天花板',
+        '自由路 × 博愛路一段｜梁底淨高 9.05m｜軌面高程 10.21m',
+        '#cbd5e1', '#64748b'
+      );
+      const matGirderCeiling = new THREE.MeshBasicMaterial({ map: texGirderCeiling, side: THREE.DoubleSide });
+
+      [-4.2, 4.2].forEach(tz => {
+        const girder = new THREE.Mesh(new THREE.BoxGeometry(250, 1.16, 3.1), matConcrete);
+        girder.position.set(40, girderBottomY + 0.58, tz);
+        lrtWorldGroup.add(girder);
+
+        for (let gx = -60; gx <= 140; gx += 45) {
+          const soffit = new THREE.Mesh(new THREE.PlaneGeometry(44, 2.9), matGirderCeiling);
+          soffit.rotation.x = Math.PI / 2;
+          soffit.position.set(gx, girderBottomY - 0.02, tz);
+          lrtWorldGroup.add(soffit);
+        }
+      });
+
+      const catwalk = new THREE.Mesh(new THREE.BoxGeometry(250, 0.15, 2.2), matPipeSteel);
+      catwalk.position.set(40, girderBottomY + 0.15, 0);
+      lrtWorldGroup.add(catwalk);
+
+      for (let x = -68; x <= 148; x += 12) {
+        const crossTie = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.65, 11.2), matDarkConcrete);
+        crossTie.position.set(x, girderBottomY - 0.1, 0);
+        lrtWorldGroup.add(crossTie);
+        const led = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 1.8), matLED);
+        led.position.set(x, girderBottomY - 0.44, 0);
+        lrtWorldGroup.add(led);
+      }
+
+      // 3. B01 站高架二層穿堂層底部天花板與懸臂托梁（位於北興陸橋 X=+65m ~ +145m，走到陸橋下抬頭可見）
+      const texB01Ceiling = makeCeilingTexture(
+        '輕軌 B01 站（北興陸橋）高架站體底部天花板',
+        '高架二層穿堂層底板 (距地 5.80m) ＋ 橫向懸臂托梁 ＋ 橋下照明',
+        '#e2e8f0', '#475569'
+      );
+      const matB01Ceiling = new THREE.MeshBasicMaterial({ map: texB01Ceiling, side: THREE.DoubleSide });
+
+      const concourseSlab = new THREE.Mesh(new THREE.BoxGeometry(60, 0.75, 13.4), matConcrete);
+      concourseSlab.position.set(stationCenterX, concourseBottomY + 0.38, 0);
+      lrtWorldGroup.add(concourseSlab);
+
+      const b01CeilingPlane = new THREE.Mesh(new THREE.PlaneGeometry(59, 13.0), matB01Ceiling);
+      b01CeilingPlane.rotation.x = Math.PI / 2;
+      b01CeilingPlane.position.set(stationCenterX, concourseBottomY - 0.02, 0);
+      lrtWorldGroup.add(b01CeilingPlane);
+
+      for (let x = stationCenterX - 27.5; x <= stationCenterX + 27.5; x += 5.5) {
+        const cBeam = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.65, 13.6), matDarkConcrete);
+        cBeam.position.set(x, concourseBottomY - 0.32, 0);
+        lrtWorldGroup.add(cBeam);
+        [-3.5, 3.5].forEach(lz => {
+          const tube = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.1, 0.45), matLED);
+          tube.position.set(x + 2.75, concourseBottomY - 0.08, lz);
+          lrtWorldGroup.add(tube);
+        });
+      }
+
+      const concourseGlass = new THREE.Mesh(new THREE.BoxGeometry(58, 2.8, 12.8), matGlass);
+      concourseGlass.position.set(stationCenterX, concourseBottomY + 2.1, 0);
+      lrtWorldGroup.add(concourseGlass);
+
+      // 4. B01 三樓島式月台層與淡海輕軌風白色雙翼弧形鋼骨雨遮
+      for (let x = stationCenterX - 40; x <= stationCenterX + 40; x += 5.0) {
+        const platBeam = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.85, 13.6), matConcrete);
+        platBeam.position.set(x, girderBottomY + 0.2, 0);
+        lrtWorldGroup.add(platBeam);
+      }
+
+      const platformFloor = new THREE.Mesh(new THREE.BoxGeometry(stationLen, 0.9, 6.2), matConcrete);
+      platformFloor.position.set(stationCenterX, railY + 0.45, 0);
+      lrtWorldGroup.add(platformFloor);
+
+      [-6.2, 6.2].forEach(sz => {
+        const fascia = new THREE.Mesh(new THREE.BoxGeometry(stationLen, 1.65, 0.38), matWhiteSteel);
+        fascia.position.set(stationCenterX, railY + 0.35, sz);
+        lrtWorldGroup.add(fascia);
+        const glassWall = new THREE.Mesh(new THREE.BoxGeometry(stationLen, 1.5, 0.14), matGlass);
+        glassWall.position.set(stationCenterX, railY + 1.9, sz);
+        lrtWorldGroup.add(glassWall);
+      });
+
+      const texBanner = makeBannerTexture('🚈 嘉義捷運藍線 B01 站（北興陸橋・自由路／北興街口）');
+      [-6.42, 6.42].forEach(sz => {
+        const banner = new THREE.Mesh(new THREE.PlaneGeometry(34, 2.2), new THREE.MeshBasicMaterial({ map: texBanner, side: THREE.DoubleSide }));
+        banner.position.set(stationCenterX - 8, railY + 0.4, sz);
+        if (sz < 0) banner.rotation.y = Math.PI;
+        lrtWorldGroup.add(banner);
+      });
+
+      for (let x = stationCenterX - 36; x <= stationCenterX + 36; x += 7.2) {
+        const curve = new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(x, railY + 4.2, -6.6),
+          new THREE.Vector3(x, railY + 6.7, 0),
+          new THREE.Vector3(x, railY + 4.2, 6.6)
+        );
+        const arch = new THREE.Mesh(new THREE.TubeGeometry(curve, 20, 0.22, 10, false), matWhiteSteel);
+        lrtWorldGroup.add(arch);
+      }
+      const roofL = new THREE.Mesh(new THREE.BoxGeometry(stationLen + 4, 0.24, 6.8), matWhiteSteel);
+      roofL.position.set(stationCenterX, railY + 5.45, -3.3);
+      roofL.rotation.x = 0.16;
+      lrtWorldGroup.add(roofL);
+      const roofR = new THREE.Mesh(new THREE.BoxGeometry(stationLen + 4, 0.24, 6.8), matWhiteSteel);
+      roofR.position.set(stationCenterX, railY + 5.45, 3.3);
+      roofR.rotation.x = -0.16;
+      lrtWorldGroup.add(roofR);
+
+      // 5. 跨自由路出入口天橋、電梯塔與往客運轉運站／臺鐵立體空橋
+      const elevTower = new THREE.Mesh(new THREE.BoxGeometry(4.2, 15.5, 4.2), matWhiteSteel);
+      elevTower.position.set(stationCenterX - 15, 7.75, 16.5);
+      lrtWorldGroup.add(elevTower);
+      const crossOverpass = new THREE.Mesh(new THREE.BoxGeometry(4.4, 3.4, 11.5), matWhiteSteel);
+      crossOverpass.position.set(stationCenterX - 15, concourseBottomY + 1.7, 11.2);
+      lrtWorldGroup.add(crossOverpass);
+      const escalator = new THREE.Mesh(new THREE.BoxGeometry(14, 2.6, 3.2), matWhiteSteel);
+      escalator.position.set(stationCenterX - 24, 3.5, 16.5);
+      escalator.rotation.z = 0.42;
+      lrtWorldGroup.add(escalator);
+
+      const skyBridge = new THREE.Mesh(new THREE.BoxGeometry(5.2, 3.6, 56), matGlass);
+      skyBridge.position.set(stationCenterX + 10, concourseBottomY + 2.0, 34);
+      lrtWorldGroup.add(skyBridge);
+      const skyFloor = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.6, 56), matSkybridge);
+      skyFloor.position.set(stationCenterX + 10, concourseBottomY + 0.2, 34);
+      lrtWorldGroup.add(skyFloor);
+    }
+
+    function createFiveCarTrain(trackZ) {
+      const g = new THREE.Group();
+      const matBlue = new THREE.MeshStandardMaterial({ color: 0x00a8e8, roughness: 0.2, metalness: 0.3 });
+      const matWin = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.1 });
+      const carLen = 6.6, gap = 0.45;
+      for (let i = -2; i <= 2; i++) {
+        const cx = i * (carLen + gap);
+        const body = new THREE.Mesh(new THREE.BoxGeometry(carLen, 2.95, 2.55), matBlue);
+        body.position.set(cx, 1.65, 0);
+        g.add(body);
+        const win = new THREE.Mesh(new THREE.BoxGeometry(carLen - 0.5, 1.15, 2.6), matWin);
+        win.position.set(cx, 1.95, 0);
+        g.add(win);
+      }
+      g.position.set(0, railY + 0.15, trackZ);
+      lrtWorldGroup.add(g);
+      return g;
+    }
+
+    buildB01StationAndViaduct();
+    const trainNorth = createFiveCarTrain(-4.2);
+    const trainSouth = createFiveCarTrain(4.2);
+
+    // =========================================================================
+    // 3. 零晃動「純 6 軸陀螺儀鎖定 ＋ 四元數 SLERP 防抖」核心演算法
+    //    徹底棄用每幀跳動的 webkitCompassHeading，改用純陀螺儀 e.alpha + 一次性方位校準
+    // =========================================================================
+    const zee = new THREE.Vector3(0, 0, 1);
+    const euler = new THREE.Euler();
+    const q0 = new THREE.Quaternion();
+    const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+    const targetQuaternion = new THREE.Quaternion();
+
+    let rawGyroAlpha = 0, rawGyroBeta = 85, rawGyroGamma = 0;
+    let initialCompassCaptured = false;
+    // yawCalibrationRad：將純陀螺儀的任意起點鎖定到真實世界北興陸橋方向 (+X 軸) 的固定偏角
+    let yawCalibrationRad = -Math.PI / 2;
+    let pitchOffsetDeg = 0; // 允許使用者單指上下微調仰角
+
+    function computeTargetQuaternion() {
+      const orient = window.screen.orientation ? THREE.MathUtils.degToRad(window.screen.orientation.angle) : 0;
+
+      // 只使用純陀螺儀的 rawGyroAlpha 加上固定校準角 yawCalibrationRad（完全不受磁力計每幀跳動干擾！）
+      const alphaRad = THREE.MathUtils.degToRad(rawGyroAlpha) + yawCalibrationRad;
+      const betaRad = THREE.MathUtils.degToRad(rawGyroBeta + pitchOffsetDeg);
+      const gammaRad = THREE.MathUtils.degToRad(rawGyroGamma);
+
+      euler.set(betaRad, alphaRad, -gammaRad, 'YXZ');
+      targetQuaternion.setFromEuler(euler);
+      targetQuaternion.multiply(q1);
+      targetQuaternion.multiply(q0.setFromAxisAngle(zee, -orient));
+    }
+
+    function onDeviceOrientation(e) {
+      if (e.alpha === null || e.beta === null || e.gamma === null) return;
+
+      rawGyroAlpha = e.alpha;
+      rawGyroBeta = e.beta;
+      rawGyroGamma = e.gamma;
+
+      // 僅在剛啟動的第一秒擷取一次羅盤方位作為初始參考，之後完全鎖死切斷羅盤雜訊！
+      if (!initialCompassCaptured && typeof e.webkitCompassHeading === 'number' && e.webkitCompassHeading >= 0) {
+        initialCompassCaptured = true;
+        // 在我們的座標系中，當相機面向北興陸橋 (方位角 133.4° = +X 軸) 時，Three.js 需要的總 Y 軸旋轉角為 -90°
+        const targetWorldYawDeg = (ROAD_AZIMUTH_DEG - e.webkitCompassHeading) - 90;
+        yawCalibrationRad = THREE.MathUtils.degToRad(targetWorldYawDeg - rawGyroAlpha);
+      }
+
+      computeTargetQuaternion();
+    }
+
+    // 【關鍵功能 1】一鍵釘死於眼前北興陸橋：
+    // 當使用者拿手機正對著眼前的北興陸橋按下此鈕，立即將 B01 站與高架軌道正對鎖死在螢幕正中央！
+    window.lockToCurrentView = function() {
+      // 計算使用者目前位置 (camera.position) 指向北興陸橋 B01 站中心 (stationCenterX, 0) 的精確水平夾角
+      const dx = stationCenterX - camera.position.x;
+      const dz = 0 - camera.position.z;
+      const angleToB01Rad = Math.atan2(-dz, dx); // +X 軸為 0 度
+
+      // 在 Three.js 中，相機看向 +X 軸對應的 alphaRad 為 -PI/2
+      const desiredAlphaRad = angleToB01Rad - Math.PI / 2;
+      yawCalibrationRad = desiredAlphaRad - THREE.MathUtils.degToRad(rawGyroAlpha);
+      pitchOffsetDeg = 0;
+      computeTargetQuaternion();
+      camera.quaternion.copy(targetQuaternion);
+    };
+
+    // 【關鍵功能 2】單指在螢幕上左右/上下滑動微調，直接把 B01 站推到北興陸橋正上方鎖死！
+    let isTouching = false, lastTouchX = 0, lastTouchY = 0;
+    window.addEventListener('pointerdown', (e) => {
+      if (e.target.tagName === 'BUTTON') return;
+      isTouching = true;
+      lastTouchX = e.clientX;
+      lastTouchY = e.clientY;
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (!isTouching) return;
+      const dx = e.clientX - lastTouchX;
+      const dy = e.clientY - lastTouchY;
+      lastTouchX = e.clientX;
+      lastTouchY = e.clientY;
+      // 單指左右滑動微調水平方位角，上下滑動微調垂直高度角
+      yawCalibrationRad += THREE.MathUtils.degToRad(dx * 0.18);
+      pitchOffsetDeg = Math.max(-25, Math.min(25, pitchOffsetDeg - dy * 0.15));
+      computeTargetQuaternion();
+    });
+    window.addEventListener('pointerup', () => { isTouching = false; });
+
+    // =========================================================================
+    // 4. 真實 GPS 卡爾曼防跳動濾波（消除都市 GPS 每秒漂移造成的站體晃動）
+    // =========================================================================
+    const targetUserPos = new THREE.Vector3(-25, 1.7, -18); // 預設在張啓楷競選總部外
+    let hasFirstGPSFix = false;
+
+    function onGPSUpdate(pos) {
+      const userLat = pos.coords.latitude;
+      const userLon = pos.coords.longitude;
+
+      const northM = (userLat - ORIGIN_LAT) * 111132.0;
+      const eastM = (userLon - ORIGIN_LON) * (111320.0 * Math.cos(THREE.MathUtils.degToRad(ORIGIN_LAT)));
+
+      const azRad = THREE.MathUtils.degToRad(ROAD_AZIMUTH_DEG);
+      const rawX = eastM * Math.sin(azRad) + northM * Math.cos(azRad);
+      const rawZ = eastM * Math.sin(azRad + Math.PI / 2) + northM * Math.cos(azRad + Math.PI / 2);
+
+      const distToB01 = Math.round(Math.hypot(rawX - stationCenterX, rawZ));
+      const distToOrigin = Math.round(Math.hypot(rawX, rawZ));
+
+      const statusEl = document.getElementById('gps-status');
+      const farNoticeEl = document.getElementById('far-notice');
+
+      // 距離裁剪：若距離路口與北興陸橋超過 230m（例如在新榮路 35 巷家中 9 樓，約 600m 外），隱藏站體
+      if (distToB01 > MAX_VISIBLE_DISTANCE && distToOrigin > MAX_VISIBLE_DISTANCE) {
+        lrtWorldGroup.visible = false;
+        statusEl.textContent = `🛰️ 距北興陸橋 B01 站 ${distToB01}m (超出可視範圍)`;
+        farNoticeEl.style.display = 'block';
+        farNoticeEl.innerHTML = `📍 您目前距離<strong>北興陸橋 B01 站</strong>約 <strong>${distToB01} 公尺</strong>。<br>因距離超過現場 230m 可視範圍，此處不顯示站體；當您抵達<strong>張啓楷競選總部、自由路博愛路口或北興陸橋</strong>現場時，站體即會自動出現！`;
+        return;
+      }
+
+      // 進入現場 230m 範圍內！
+      lrtWorldGroup.visible = true;
+      farNoticeEl.style.display = 'none';
+
+      if (!hasFirstGPSFix) {
+        hasFirstGPSFix = true;
+        targetUserPos.set(rawX, 1.7, rawZ);
+        camera.position.copy(targetUserPos);
+      } else {
+        // 防跳動死區 (Deadband)：若 GPS 漂移小於 2.8 公尺視為訊號誤差忽略，避免站體跟著 GPS 秒跳動
+        const deltaMove = Math.hypot(rawX - targetUserPos.x, rawZ - targetUserPos.z);
+        if (deltaMove > 2.8) {
+          targetUserPos.x = targetUserPos.x * 0.65 + rawX * 0.35;
+          targetUserPos.z = targetUserPos.z * 0.65 + rawZ * 0.35;
+        }
+      }
+
+      statusEl.textContent = `🛰️ 已鎖定北興陸橋｜距 B01 站 ${distToB01}m`;
+    }
+
+    function onGPSError(err) {
+      document.getElementById('gps-status').textContent = `⚠️ GPS 定位中 (${err.message})`;
+    }
+
+    window.startRealWorldAR = async function() {
+      try {
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+          const perm = await DeviceOrientationEvent.requestPermission();
+          if (perm === 'granted') {
+            window.addEventListener('deviceorientation', onDeviceOrientation, true);
+          }
+        } else {
+          window.addEventListener('deviceorientation', onDeviceOrientation, true);
         }
 
-        function closeModal() {
-            modal.classList.remove('opacity-100');
-            modalContent.classList.remove('scale-100');
-            modalContent.classList.add('scale-95');
-            
-            setTimeout(() => {
-                modal.classList.add('hidden');
-                document.body.style.overflow = 'auto';
-            }, 300);
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false
+        });
+        document.getElementById('camera-video').srcObject = stream;
+
+        if (navigator.geolocation) {
+          navigator.geolocation.watchPosition(onGPSUpdate, onGPSError, {
+            enableHighAccuracy: true,
+            maximumAge: 1000,
+            timeout: 10000
+          });
         }
-    </script>
+
+        document.getElementById('start-overlay').style.display = 'none';
+        document.getElementById('top-hud').style.display = 'flex';
+        document.getElementById('align-tip').style.display = 'block';
+      } catch (e) {
+        alert('請確認使用 HTTPS 網址並允許相機、定位與動作與方向權限：' + e.message);
+      }
+    };
+
+    window.downloadSelfHTML = function() {
+      const htmlContent = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'index.html';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
+
+    function getTrainX(t) {
+      const cycle = ((t % 24) + 24) % 24;
+      const startX = -70, endX = 105;
+      if (cycle < 9) return startX + (endX - startX) * (0.5 - 0.5 * Math.cos((cycle / 9) * Math.PI));
+      if (cycle < 12) return endX;
+      if (cycle < 21) return endX - (endX - startX) * (0.5 - 0.5 * Math.cos(((cycle - 12) / 9) * Math.PI));
+      return startX;
+    }
+
+    let simTime = 0, lastTime = performance.now();
+    function animate(now) {
+      requestAnimationFrame(animate);
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+      simTime += dt;
+
+      if (lrtWorldGroup.visible) {
+        // 1. 相機位置平滑插值（完全消除 GPS 瞬間跳動）
+        camera.position.lerp(targetUserPos, 0.08);
+        // 2. 相機旋轉四元數 SLERP 阻尼濾波（完全消除手部微顫與感測器噪訊，轉動依然跟手）
+        camera.quaternion.slerp(targetQuaternion, 0.22);
+
+        trainNorth.position.x = getTrainX(simTime);
+        trainSouth.position.x = getTrainX(simTime + 12);
+      }
+      renderer.render(scene, camera);
+    }
+    requestAnimationFrame(animate);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
 </body>
 </html>
